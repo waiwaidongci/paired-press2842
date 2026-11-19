@@ -19,14 +19,15 @@
     ]
   ],
   "defaults": {
-    "resamples": 10000
+    "resamples": 10000,
+    "seed": 42
   },
   "names": [
     "栖木·米白纸套印",
     "栖木·棉纸校样",
     "栖木·轻涂纸试印"
   ],
-  "note": "同一纸张上成对测量；小样本枚举全部符号，较大样本使用固定种子 Monte Carlo 与加一校正。",
+  "note": "按班次锁定纸样名册并等额随机分派 AB/BA 顺序；缺测纸样保留席位，双侧检验按班次配额重排符号。",
   "accent": "58 0.15 33",
   "dark": "27 0.017 50",
   "bg": "94 0.027 70",
@@ -34,7 +35,7 @@
   "direction": "实验分析",
   "title": "栖木印刷配对试验簿",
   "slug": "paired-press",
-  "algorithm": "配对差均值与精确符号翻转置换检验",
+  "algorithm": "班次分块等额随机顺序 + 配对差均值符号翻转检验",
   "entities": "PressStudy / MatchedPair / PairedRun / Review",
   "scenario": "同纸张两工艺成对色差→配对分析→试印复核；枚举n<=18，以上固定seed Monte Carlo加一校正",
   "visual": "印刷套色、炭灰与赭红",

@@ -1,16 +1,18 @@
 # 栖木印刷配对试验簿
 
-同纸张两工艺成对色差→配对分析→试印复核；枚举n<=18，以上固定seed Monte Carlo加一校正。原生 HTML/CSS/JavaScript 多模块工作席，所有计算由 Python 完成。
+同纸张两工艺成对色差→按班次等额随机分派试印顺序→配对分析→试印复核。原生 HTML/CSS/JavaScript 多模块工作席，所有计算由 Python 完成。
 
 ## 模拟业务
 栖木研究协作组，12名分析师与业务人员，日常使用 `paired-press-202611-1.csv` 手工抄表。当前三个痛点：观测与口径不可追溯、重算易出错、结果与复核割裂。上游提供独立合成业务观测；本应用接管数据登记、方法执行和输入冻结；下游负责人形成复测/预算方案，观察员获取复核后的CSV。
 
-核心业务实体：PressStudy / MatchedPair / PairedRun / Review。源码 model/schema/service/controller/route 与前端 api/store/pages 完成链路，不依赖浏览器本地假数据。
+核心业务实体：PressStudy / RosterLock / RosterEntry / MatchedPair / PairedRun / Review。源码 model/schema/service/controller/route 与前端 api/store/pages 完成链路，不依赖浏览器本地假数据。
 
 ## 功能与方法
 - 试印研究、成对纸样录入/编辑/删除；重名记录与非法数值明确拒绝。
-- 配对差均值与精确符号翻转置换检验。同一纸张上成对测量；小样本枚举全部符号，较大样本使用固定种子 Monte Carlo 与加一校正。
-- 每次运行冻结参数、观测和SHA256。Redis任务由独立worker计算，写DB与共享产物卷；输入修改不会改写历史结果。
+- 试印顺序按班次随机轮换：测量前锁定纸样名册（seed 固定），每班等额随机分派 AB/BA 两种工艺顺序；锁定后不重抽、不补抽。并发领单返回同一分派，重试不改换顺序；登记两次读数与实际顺序，错序直接拒绝且不进入排队。
+- 双侧检验用完整纸样的工艺平均差；缺测纸样仍占原名册席位，重排按班次原配额进行，只重新决定哪些纸样取 AB，不会把逐张自由翻转所得、实际设计不可能的顺序计入。说明“无工艺效应”与“缺测不受分派影响”等假设。
+- 小样本（完整对数 n<=18 且可行分派数有限）按席位精确枚举；否则用固定 seed 42 的 Monte Carlo 加一校正。
+- 排队时一并冻结名册和读数并生成SHA256；结果页展示可复算的检验依据（设计、统计量、重排规则、班次配额、假设）。旧分析保留，不随名册或读数变化。Redis任务由独立worker计算，写DB与共享产物卷；输入修改不会改写历史结果。
 - 负责人复核不可覆盖；审计记录登录、数据改动、排队、复核与导出；240请求/分钟限流、全局可恢复错误。
 
 ## 快速启动
@@ -31,9 +33,9 @@ docker compose exec -T backend python -m scripts.seed_demo
 1. 09:00 admin登录，查“栖木·米白纸套印”。
 2. 09:10 analyst核对 `paired-press-202611-1.csv` 的seed记录。
 3. 09:15 来源录入页检查 `原工艺色差 ΔE` 等业务字段，必要时编辑。
-4. 09:20 分析执行页保留默认参数 `{"resamples": 10000}`，命名本轮研究。
-5. 09:21 冻结输入并排队，worker实算，结果页自动刷新。
-6. 09:25 阅读核心数值、方法边界、明细与SHA256；发现失败先修数据重跑。
+4. 09:20 名册分派页核对锁定名册与每班 AB/BA 配额；领单登记两次读数与实际顺序。
+5. 09:21 分析执行页保留默认参数 `{"resamples": 10000, "seed": 42}`，命名本轮研究并排队；排队时冻结名册与读数，worker实算，结果页自动刷新。
+6. 09:25 阅读核心数值、检验依据、方法边界、明细与SHA256；发现失败先修数据重跑。
 7. 09:35 admin打开业务复核，写明限制与下一步动作，归档后不可覆盖。
 8. 09:40 viewer读取复核意见并下载CSV，在操作留痕页核对下载事件。
 
@@ -45,6 +47,7 @@ docker compose exec -T backend python -m scripts.seed_demo
 |计算|NumPy2.2、SciPy1.15，固定seed42|
 |数据库|PostgreSQL16|
 |任务|Redis7持久队列，Python独立worker，心跳healthcheck|
+|统计|班次分块等额随机顺序；按席位配额符号重排，精确枚举或 Monte Carlo 加一校正|
 
 `frontend/src/`分api、stores、types、components/common、hooks、pages、router、utils、constants；`backend/src/`分config、models、schemas、services、controllers、routes、middlewares、utils、constants；`backend/scripts/seed_demo.py`自然键插入、重复不覆盖修改；`backend/migrations/README.md`说明schema版本。
 
@@ -53,8 +56,8 @@ docker compose exec -T backend python -m scripts.seed_demo
 共享枚举：角色admin/analyst/viewer和队列queued/running/completed/failed；后端`src/constants/enums.py`、认证与worker使用相同值；前端`src/types/enums.js`、状态与角色界面使用相同值。Google Fonts：Noto Serif SC + IBM Plex Mono；断网使用serif/monospace回退。
 
 ## 算法输入、失败态与复现
-输入为选定批次全部观测和参数，输出核心数值、明细、解释；参数经后端严格白名单和范围验证。同一纸张上成对测量；小样本枚举全部符号，较大样本使用固定种子 Monte Carlo 与加一校正。。空批次拒绝；不完整字段/非有限数/非法计数拒绝；常量相关列与不足样本使任务failed并保留错误。固定seed42、输入checksum相同可复现。独立oracle：小n穷举手算；交换两列统计量变号p相同；缺失配对拒绝。
+输入为锁定名册、登记读数与参数，输出核心数值、检验依据、明细、解释；参数经后端严格白名单和范围验证。名册每班纸样数须为偶数以等额分派 AB/BA；实际顺序与分派不符、读数不完整、名册未锁定均拒绝排队；空批次拒绝。缺测纸样保留席位但不进入完整平均差。精确枚举在完整对数 n<=18 且可行分派数不超过 2,000,000 时启用，否则固定 seed 的 Monte Carlo 加一校正。输入 checksum 相同可复现。独立 oracle：按席位直接穷举全部合法分派核对 p 值；交换读数1/2 统计量变号且 p 相同；并发领单顺序一致且仅一次领单成功；排队后补录不进入已冻结快照。
 
-已知边界：小型本地研究应用，使用合成数据，不含企业SSO与外发邮件；结果由人工复核，不自动执行业务决策；单worker恢复queued/running任务，数据库与Redis间未采用分布式事务。以当前测试目录TESTING.md记录实际验证结果。
+已知边界：小型本地研究应用，使用合成数据，不含企业SSO与外发邮件；结果由人工复核，不自动执行业务决策；单worker恢复queued/running任务，数据库与Redis间未采用分布式事务。以 `TESTING.md` 记录实际验证结果。
 
 MIT License。

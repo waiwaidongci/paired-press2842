@@ -1,2 +1,3 @@
 export function esc(x){return String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 export function fmt(x){if(typeof x==='number')return Number.isInteger(x)?x.toLocaleString():x.toLocaleString(undefined,{maximumFractionDigits:5});if(Array.isArray(x))return x.map(fmt).join(' / ');if(x && typeof x==='object')return Object.entries(x).map(([k,v])=>k+': '+fmt(v)).join('；');return String(x??'—');}
+export function snapshotCount(snapshot){if(Array.isArray(snapshot))return snapshot.length;if(snapshot&&Array.isArray(snapshot.shifts))return snapshot.shifts.reduce((n,g)=>n+(g.seats??g.entries?.length??0),0);return 0;}

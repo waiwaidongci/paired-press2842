@@ -6,6 +6,7 @@ from src.config.domain import DOMAIN
 from src.models.user import User
 from src.models.study import Study
 from src.models.observation import Observation
+from src.models.roster import RosterEntry,RosterLock
 from src.models import run,review,audit
 from src.utils.security import hash_password
 
@@ -37,6 +38,31 @@ def seed():
                 key=f'DEMO-{k+1}-{n+1:04}'
                 if not db.scalar(select(Observation.id).where(Observation.study_id==study.id,Observation.source_key==key)):
                     db.add(Observation(study_id=study.id,source_key=key,values=values))
+            if i==2 and k==0 and not db.scalar(select(RosterLock).where(RosterLock.study_id==study.id)):
+                # Sealed demo roster: two shifts x 8 seats, equal AB/BA per shift.
+                # The last seat of each shift is left unmeasured so the demo shows
+                # missing papers keeping their roster seats.
+                from src.services.roster import allocate
+                from src.utils.serializers import now
+                stamp=now()
+                db.add(RosterLock(study_id=study.id,seed='demo-roster-42',locked_at=stamp,locked_by='admin@demo.local'))
+                seats=[('早班',[f'PROOF-E{n:02}' for n in range(1,9)]),('晚班',[f'PROOF-N{n:02}' for n in range(1,9)])]
+                missing={'PROOF-E08','PROOF-N08'}
+                for seat in allocate('demo-roster-42',seats):
+                    row=RosterEntry(study_id=study.id,**seat,claimed_by='demo.worker',claimed_at=stamp,
+                                    measured_by='demo.worker',measured_at=stamp)
+                    if seat['slot_key'] not in missing:
+                        base=float(np.clip(rng.normal(5.2,.6),.1,20))
+                        delta=float(rng.normal(-.45+k*.25,.5))
+                        old_value=round(base,3);new_value=round(max(.05,base+delta),3)
+                        if seat['assigned_order']=='AB':
+                            row.reading1,row.reading2=old_value,new_value
+                        else:
+                            row.reading1,row.reading2=new_value,old_value
+                        row.actual_order=seat['assigned_order']
+                    else:
+                        row.claimed_by=None;row.claimed_at=None;row.measured_by=None;row.measured_at=None
+                    db.add(row)
         db.commit()
         counts={model.__tablename__:db.scalar(select(func.count()).select_from(model)) for model in (User,Study,Observation)}
         print(json.dumps(counts));return counts

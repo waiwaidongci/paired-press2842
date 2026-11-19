@@ -35,6 +35,10 @@ def validate_parameters(params):
             v=p[key]
             if isinstance(v,bool) or not isinstance(v,(int,float)) or int(v)!=v or not 200<=v<=20000: raise ValueError('重采样次数必须是200到20000的整数')
             p[key]=int(v)
+    if 'seed' in p:
+        v=p['seed']
+        if isinstance(v,bool) or not isinstance(v,(int,float)) or not math.isfinite(v) or int(v)!=v or v<0 or v>2**31-1: raise ValueError('随机种子必须是0到2147483647的整数')
+        p['seed']=int(v)
     for key in ('alpha','power'):
         if key in p:
             p[key]=float(p[key])
